@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Timemark Fake GPS & Waktu</title>
+    <link rel="icon" type="image/png" href="icon.png" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    canvas { display: none; }
+    #previewImage { max-height: 500px; object-fit: contain; }
+    select, input, textarea { margin-bottom: .5rem; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+  <h1 class="text-2xl font-bold mb-4">Timemark Fake GPS & Waktu</h1>
+
+  <div class="bg-white p-4 rounded shadow w-full max-w-md">
+    <textarea id="alamatDetail" rows="2" placeholder="Jl. I Gusti Ngurah Rai No.39" class="border p-2 w-full rounded"></textarea>
+    <select id="provinsi" class="border p-2 w-full rounded"><option>Pilih Provinsi</option></select>
+    <select id="kota" class="border p-2 w-full rounded"><option>Pilih Kota/Kab.</option></select>
+    <select id="kecamatan" class="border p-2 w-full rounded"><option>Pilih Kecamatan</option></select>
+    <select id="kelurahan" class="border p-2 w-full rounded"><option>Pilih Kelurahan/Desa</option></select>
+    <input id="kodepos" placeholder="Kode Pos" readonly class="bg-gray-100 border p-2 w-full rounded"/>
+    <input type="date" id="tanggal" class="border p-2 w-full rounded"/>
+    <input type="time" id="waktu" class="border p-2 w-full rounded"/>
+    <input type="text" id="perusahaan" placeholder="Nama Perusahaan (Opsional)" class="border p-2 w-full rounded"/>
+    <input type="text" id="nama" placeholder="Nama" class="border p-2 w-full rounded"/>
+      <select id="catatan" class="border p-2 w-full rounded">
+  <option value="">Pilih Shift</option>
+  <option>Shift Pagi</option>
+  <option>Shift Siang</option>
+  <option>Shift Sore</option>
+  <option>Shift Malam</option>
+</select>
+    <input type="file" accept="image/*" capture="environment" id="gambarInput" class="w-full mb-2"/>
+    <button onclick="generate()" class="w-full bg-blue-600 text-white py-2 rounded">Generate</button>
+  </div>
+
+  <div class="mt-6 text-center">
+    <img id="previewImage" class="border rounded shadow"/>
+    <a id="downloadBtn" class="hidden mt-4 bg-green-600 text-white px-4 py-2 rounded inline-block" download="websitebyindra.png">Download</a>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const API = 'https://alamat.thecloudalert.com/api';
+
+    async function fetchData(path, target) {
+      const sel = document.getElementById(target);
+      sel.innerHTML = '<option>Loading...</option>';
+      const res = await fetch(`${API}/${path}`);
+      const json = await res.json();
+      const arr = json.result;
+      sel.innerHTML = `<option>Pilih ${target.charAt(0).toUpperCase()+target.slice(1)}</option>` + arr.map(i=>`<option value="${i.id}">${i.text}</option>`).join('');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      fetchData('provinsi/get/', 'provinsi');
+      document.getElementById('provinsi').onchange = e => fetchData(`kabkota/get/?d_provinsi_id=${e.target.value}`, 'kota');
+      document.getElementById('kota').onchange = e => fetchData(`kecamatan/get/?d_kabkota_id=${e.target.value}`, 'kecamatan');
+      document.getElementById('kecamatan').onchange = e => fetchData(`kelurahan/get/?d_kecamatan_id=${e.target.value}`, 'kelurahan');
+      document.getElementById('kelurahan').onchange = async e => {
+        const kid = document.getElementById('kecamatan').value;
+        const lid = e.target.value;
+        const r = await fetch(`${API}/kodepos/get/?d_kabkota_id=${document.getElementById('kota').value}&d_kecamatan_id=${kid}&d_kelurahan_id=${lid}`);
+        const j = await r.json();
+        document.getElementById('kodepos').value = j.result[0]?.text || '';
+      };
+    });
+
+    async function generate() {
+      const det = document.getElementById('alamatDetail').value.trim();
+      const kel = document.getElementById('kelurahan').selectedOptions[0]?.text;
+      const kec = document.getElementById('kecamatan').selectedOptions[0]?.text;
+      const kot = document.getElementById('kota').selectedOptions[0]?.text;
+      const prov = document.getElementById('provinsi').selectedOptions[0]?.text;
+      const pos = document.getElementById('kodepos').value;
+      const tanggal = document.getElementById('tanggal').value;
+      const waktu = document.getElementById('waktu').value;
+      const pt = document.getElementById('perusahaan').value.trim();
+      const nama = document.getElementById('nama').value.trim();
+      const catatan = document.getElementById('catatan').value.trim();
+      const imgFile = document.getElementById('gambarInput').files[0];
+      if (!det||!kel||!kec||!kot||!prov||!pos||!tanggal||!waktu||!imgFile) {
+        return alert('Data belum lengkap');
+      }
+
+      const addr = `${det}\nKec. ${kec}, Desa/${kel}, ${kot}, ${prov} ${pos}`;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => draw(img, tanggal, waktu, addr, pt, nama, catatan);
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(imgFile);
+    }
+
+    function draw(img, tanggal, waktu, alamatText, pt, nama, catatan) {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      ctx.fillStyle = 'white';
+      ctx.shadowColor = 'black';
+      ctx.shadowBlur = 4;
+
+      const margin = 25;
+      let jamFontSize = canvas.width * 0.1;
+      ctx.font = `bold ${jamFontSize}px Arial`;
+      let jamWidth = ctx.measureText(waktu).width;
+      let garisX = margin + jamWidth + 20;
+      const maxGarisX = canvas.width * 0.5;
+
+      while (garisX > maxGarisX) {
+        jamFontSize -= 2;
+        ctx.font = `bold ${jamFontSize}px Arial`;
+        jamWidth = ctx.measureText(waktu).width;
+        garisX = margin + jamWidth + 20;
+      }
+
+      const jamY = canvas.height - margin - 330;
+      ctx.fillText(waktu, margin, jamY);
+
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(garisX, jamY - jamFontSize + 30);
+      ctx.lineTo(garisX, jamY + jamFontSize - 30);
+      ctx.stroke();
+
+      ctx.font = `${canvas.width * 0.028}px Arial`;
+      ctx.fillText(tanggal.split('-').reverse().join('/'), garisX + 20, jamY - jamFontSize + 35);
+
+      const hari = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'][new Date(tanggal).getDay()];
+      ctx.fillText(hari, garisX + 20, jamY + jamFontSize - 35);
+
+      let y = jamY + jamFontSize + 40;
+
+      ctx.font = `${canvas.width * 0.03}px Arial`;
+      const lineCount = wrap(ctx, alamatText, margin, y, canvas.width - 2 * margin, canvas.width * 0.03 + 5);
+      y += lineCount * (canvas.width * 0.03 + 5) + 20;
+
+      if (pt) {
+        ctx.font = `${canvas.width * 0.028}px Arial`;
+        ctx.fillText(`Perusahaan: ${pt}`, margin, y);
+        y += canvas.width * 0.028 + 6;
+      }
+      if (nama) {
+        ctx.font = `${canvas.width * 0.026}px Arial`;
+        ctx.fillText(`Nama: ${nama}`, margin, y);
+        y += canvas.width * 0.026 + 4;
+      }
+      if (catatan) {
+        ctx.font = `${canvas.width * 0.026}px Arial`;
+        ctx.fillText(`Catatan: ${catatan}`, margin, y);
+        y += canvas.width * 0.026 + 4;
+      }
+
+      ctx.font = `${canvas.width * 0.025}px Arial`;
+      ctx.fillStyle = '#FBBF24';
+      ctx.fillText('Time', canvas.width - 160, 30);
+      ctx.fillStyle = 'white';
+      ctx.fillText('mark', canvas.width - 110, 30);
+      ctx.font = `${canvas.width * 0.018}px Arial`;
+      ctx.fillText('Foto 100% akurat', canvas.width - 160, 50);
+      ctx.save();
+      ctx.translate(canvas.width - 10, canvas.height / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('© TIMEMARK Verified', 0, 0);
+      ctx.restore();
+
+      const dataURL = canvas.toDataURL('image/png');
+      document.getElementById('previewImage').src = dataURL;
+      const dl = document.getElementById('downloadBtn');
+      dl.href = dataURL;
+      dl.classList.remove('hidden');
+    }
+
+    function wrap(ctx, text, x, y, maxW, lh) {
+      let totalLines = 0;
+      text.split('\n').forEach(line => {
+        let cur = '', yy = y;
+        for (const w of line.split(' ')) {
+          const t = cur + w + ' ';
+          if (ctx.measureText(t).width > maxW) {
+            ctx.fillText(cur, x, yy);
+            cur = w + ' ';
+            yy += lh;
+            totalLines++;
+          } else cur = t;
+        }
+        ctx.fillText(cur, x, yy);
+        totalLines++;
+        y = yy + lh;
+      });
+      return totalLines;
+    }
+  </script>
+</body>
+</html>
